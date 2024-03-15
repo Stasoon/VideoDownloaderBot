@@ -1,6 +1,8 @@
 import hashlib
 import os.path
 from datetime import datetime
+from uuid import uuid4
+
 import aiofiles
 
 import aiohttp
@@ -9,7 +11,7 @@ from aiogram.exceptions import AiogramError
 from aiogram.types import Message, CallbackQuery, InputFile
 from pyrogram import Client
 
-from config import CLIENT_NAME, CLIENT_API_ID, CLIENT_API_HASH, VIDEOS_FOLDER
+from config import VIDEOS_FOLDER
 from src.utils import logger
 
 
@@ -45,16 +47,42 @@ async def send_video(bot: Bot, chat_id: int, file: str | InputFile) -> str:
         return video_msg.animation.file_id
 
 
-async def load_video_and_get_file_id(bot_id: int, video_url: str, filename: str = None):
-    """ Отправляет видео в нужный чат. Возвращает file_id видео """
+global_client = None
 
+
+async def get_pyrogram_client(session_name):
+    global global_client
+    if global_client is None:
+        global_client = Client(session_name, workdir='sessions/')
+        await global_client.start()
+    return global_client
+
+
+async def __send_and_delete_big_video(bot_username: str, video_path: str, filename: str = None):
+    app = await get_pyrogram_client('stas')
+
+    try:
+        video_msg = await app.send_video(
+            chat_id=bot_username, video=video_path,
+            supports_streaming=True, file_name=filename,
+            protect_content=False, width=1920, height=1080
+        )
+        video_file_id = video_msg.video.file_id
+    except Exception as e:
+        logger.error(e)
+        video_file_id = None
+
+    yield video_file_id, video_path
+
+
+async def __load_video_and_get_file_id(bot_username: str, video_url: str, filename: str = None):
+    """Скачивает видео, а затем отправляет в чат с ботом. Возвращает file_id видео."""
     if filename:
         filename = filename if filename.endswith('.mp4') else f"{filename}.mp4"
     else:
-        timestamp = str(datetime.now())
-        filename = f"{hashlib.md5(timestamp.encode()).hexdigest()}.mp4"
+        filename = f"{bot_username}_{str(datetime.today())}.mp4"
 
-    file_path = os.path.join(VIDEOS_FOLDER, filename)
+    file_path = os.path.join(VIDEOS_FOLDER, f"{str(uuid4())[:10]}_{filename}")
 
     async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit_per_host=10)) as session:
         async with session.get(video_url) as response:
@@ -62,17 +90,45 @@ async def load_video_and_get_file_id(bot_id: int, video_url: str, filename: str 
                 async for chunk in response.content.iter_any():
                     await f.write(chunk)
 
-    async with Client(CLIENT_NAME, CLIENT_API_ID, CLIENT_API_HASH) as app:
+    app = await get_pyrogram_client('stas')
+    video_file_id = None
+
+    try:
         video_msg = await app.send_video(
-            chat_id=bot_id, video=file_path,
-            supports_streaming=True, file_name=filename
+            chat_id=bot_username, video=file_path,
+            supports_streaming=True, file_name=filename,
+            protect_content=False, width=1920, height=1080
         )
         video_file_id = video_msg.video.file_id
+    except Exception as e:
+        logger.error(e)
 
-    if os.path.exists(file_path):
-        os.remove(path=file_path)
+    yield video_file_id, file_path
 
-    return video_file_id
+
+async def process_video(
+        bot_username: str, video_url: str = None, video_fs_path: str = None, filename: str = None
+):
+    if video_url is None and video_fs_path is None:
+        return
+
+    if video_url:
+        meth = __load_video_and_get_file_id
+        params = {'bot_username': bot_username, 'video_url': video_url, 'filename': filename}
+    elif video_fs_path:
+        meth = __send_and_delete_big_video
+        params = {'bot_username': bot_username, 'video_path': video_fs_path, 'filename': filename}
+
+    async for file_id, file_path in meth(**params): #__load_video_and_get_file_id(bot_username, video_url, filename):
+        # Используем video_id
+        print("Video File ID:", file_id, file_path)
+
+        # Удаляем файл после использования
+        if os.path.exists(file_path):
+            print(f'удаляю {file_path}')
+            os.remove(file_path)
+
+        return file_id
 
 
 def send_and_delete_timer():
@@ -94,26 +150,3 @@ def send_and_delete_timer():
         return wrapper
     return decorator
 
-
-# async def send_audio_message(bot: Bot, chat_id: int, file, song_title=None, artist_name=None, cover=None) -> Message:
-#     """ Отправляет песню с подписью """
-#     bot_username = (await bot.get_me()).username
-#
-#     default_cover = await Config.get_default_cover()
-#     if default_cover or (default_cover and not cover):
-#         cover = default_cover
-#
-#     audio_message = await bot.send_audio(
-#         chat_id=chat_id, audio=file, title=song_title,
-#         performer=artist_name, thumb=cover,
-#         caption=UserMessages.get_audio_file_caption(bot_username=bot_username),
-#     )
-#     return audio_message
-#
-#
-# async def send_channels_to_subscribe(bot, user_id):
-#     """ Показывает сообщение с просьбой подписаться, нужные каналы и кнопку проверки"""
-#     channels_to_subscribe = await get_not_subscribed_channels(bot=bot, user_id=user_id)
-#     markup = UserKeyboards.get_not_subbed_markup(channels_to_subscribe)
-#     text = UserMessages.get_user_must_subscribe()
-#     await bot.send_message(chat_id=user_id, text=text, reply_markup=markup)

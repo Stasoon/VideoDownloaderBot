@@ -29,6 +29,7 @@ class User(_BaseModel):
     username = CharField(null=True, default='Пользователь')
     last_activity = DateTimeField(null=True)
     bot_blocked = BooleanField(default=False)
+    referral_link = CharField(null=True)
     registration_timestamp = DateTimeField()
 
     def __str__(self):
@@ -42,6 +43,26 @@ class CachedVideo(_BaseModel):
 
     class Meta:
         db_table = 'cached_videos'
+
+
+class ChannelToSubscribe(_BaseModel):
+    """" Канал для обязательной подписки """
+    class Meta:
+        db_table = 'channels_to_subscribe'
+
+    channel_id = BigIntegerField()
+    title = CharField()
+    url = CharField()
+
+
+class ReferralLink(_BaseModel):
+    """ Реферальная ссылка """
+    class Meta:
+        db_table = 'referral_links'
+
+    name = CharField(unique=True)
+    user_count = IntegerField(default=0)
+    passed_op_count = IntegerField(default=0)
 
 
 class Admin(_BaseModel):

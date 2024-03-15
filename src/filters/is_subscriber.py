@@ -1,42 +1,46 @@
-# from typing import Union
-#
-# from aiogram import Bot
-# from aiogram.enums import ChatMemberStatus
-# from aiogram.exceptions import AiogramError
-# from aiogram.filters import BaseFilter
-# from aiogram.types import Message, CallbackQuery
-#
-# from src.utils import logger
-#
-#
-# class IsSubscriberFilter(BaseFilter):
-#
-#     def __init__(self, should_be_sub: bool = True):
-#         self.should_be_sub = should_be_sub
-#
-#     async def __call__(self, event: Union[Message, CallbackQuery], *args, **kwargs) -> bool:
-#         flag = await self.is_user_subscribed(bot=event.bot, user_id=event.from_user.id)
-#         return flag == self.should_be_sub
-#
-#     @staticmethod
-#     def get_channels_to_subscribe() -> list[int]:
-#         return [CHANNEL_ID]
-#
-#     @classmethod
-#     async def is_user_subscribed(cls, bot: Bot, user_id: int) -> bool:
-#         required_roles = [ChatMemberStatus.MEMBER, ChatMemberStatus.CREATOR, ChatMemberStatus.ADMINISTRATOR]
-#
-#         for chat_id in cls.get_channels_to_subscribe():
-#             # Если не получается получить чат - продолжаем
-#             try:
-#                 chat_member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
-#             except AiogramError as e:
-#                 logger.error(e)
-#                 continue
-#
-#             # Если не подписан на один из чатов - возвращаем False
-#             if chat_member.status not in required_roles:
-#                 return False
-#
-#         # Если подписан на все, возвращаем True
-#         return True
+from typing import Any, Union, Dict
+
+from aiogram.enums import ChatMemberStatus
+from aiogram.exceptions import AiogramError
+from aiogram.types import CallbackQuery, Message
+from aiogram.filters import BaseFilter
+from aiogram import Bot
+
+from src.database.subscription_channels import get_channels, get_channel_ids
+from src.utils import logger
+
+
+async def get_not_subscribed_channels(bot, user_id):
+    not_subbed_channels = [
+        channel for channel in get_channels()
+        if not await check_status_in_channel_is_member(bot, channel.channel_id, user_id)
+    ]
+    return not_subbed_channels
+
+
+async def check_status_in_channel_is_member(bot: Bot, channel_id: int, user_id: int) -> bool:
+    try:
+        user = await bot.get_chat_member(channel_id, user_id)
+    except AiogramError as e:
+        logger.exception(e)
+        return True
+
+    if user.status != ChatMemberStatus.LEFT:
+        return True
+    return False
+
+
+class IsSubscriberFilter(BaseFilter):
+    """ Фильтр проверки подписки """
+
+    def __init__(self, should_be_subscriber: bool = True):
+        self.is_sub = should_be_subscriber
+
+    async def __call__(self, event: Union[Message, CallbackQuery], *args, **kwargs) -> Union[bool, Dict[str, Any]]:
+        # if has_subscription(user_id=event.from_user.id):
+        #     return self.is_sub is True
+        for channel_id in get_channel_ids():
+            if not await check_status_in_channel_is_member(event.bot, channel_id, event.from_user.id):
+                return self.is_sub is False
+
+        return self.is_sub is True

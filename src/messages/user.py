@@ -1,7 +1,5 @@
 import html
 
-from src.database.models import User
-
 
 class UserMessages:
 
@@ -13,3 +11,22 @@ class UserMessages:
             '<i>Отправьте ссылку на видео, которое хотите скачать:</i>'
         )
 
+    @staticmethod
+    def get_download_error() -> str:
+        return '<i>⚠ Не удалось скачать видео</i>'
+
+    @staticmethod
+    def get_video_not_found() -> str:
+        return '<i>⚠ Видео не найдено! \n\nПроверьте корректность ссылки.</i>'
+
+    @staticmethod
+    def get_user_must_subscribe() -> str:
+        return '❗Подпишитесь на каналы, чтобы пользоваться ботом:'
+
+    @staticmethod
+    def get_user_subscribed():
+        return '✅ Спасибо! \nМожете пользоваться ботом.'
+
+    @staticmethod
+    def get_not_all_channels_subscribed() -> str:
+        return 'Вы подписались не на все каналы 😔'

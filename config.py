@@ -8,8 +8,10 @@ load_dotenv(find_dotenv())
 BOT_TOKEN: Final[str] = os.getenv('BOT_TOKEN', 'define me')
 OWNER_IDS: Final[tuple] = tuple(int(i) for i in str(os.getenv('BOT_OWNER_IDS')).split(','))
 
-VIDEOS_FOLDER: Final[str] = 'videos/'
+cwd = os.getcwd()
+VIDEOS_FOLDER: Final[str] = os.path.join(cwd, 'videos/')
 
-CLIENT_NAME: Final[str] = os.getenv('CLIENT_NAME')
-CLIENT_API_ID: Final[int] = int(os.getenv('CLIENT_API_ID'))
-CLIENT_API_HASH: Final[str] = os.getenv('CLIENT_API_HASH')
+CLIENT_SESSION_NAME: Final[str] = os.getenv('CLIENT_SESSION_NAME')
+SESSIONS_FOLDER: Final[str] = os.path.join(cwd, 'sessions/')
+
+MAX_VIDEO_FILE_SIZE_MB = 200

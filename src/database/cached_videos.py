@@ -11,9 +11,8 @@ class VideoSource(Enum):
     VK = 'vk'
 
 
-def save_video_to_cache(file_id: int, key: str, source: VideoSource) -> CachedVideo:
-    print('saved')
-    return CachedVideo.create(telegram_file_id=file_id, path=key, source=source.value)
+def save_video_to_cache(file_id: str, key: str, source: VideoSource) -> CachedVideo:
+    return CachedVideo.get_or_create(telegram_file_id=file_id, path=key, source=source.value)
 
 
 def get_cached_video(key: str, source: VideoSource) -> CachedVideo:

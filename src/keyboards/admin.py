@@ -14,6 +14,8 @@ class AdminKeyboards:
 
         builder.button(text='📊 Статистика')
         builder.button(text='✉ Рассылка')
+        builder.button(text='📲 Обязательные подписки 📲')
+        builder.button(text='🔗 Реферальные ссылки 🔗')
 
         builder.adjust(1)
         return builder.as_markup(resize_keyboard=True)
