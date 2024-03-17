@@ -2,7 +2,7 @@ from peewee import (
     Model, PostgresqlDatabase, SqliteDatabase, AutoField,
     SmallIntegerField, BigIntegerField, IntegerField,
     DateTimeField, CharField, DecimalField, BooleanField,
-    ForeignKeyField
+    ForeignKeyField, TextField
 )
 
 
@@ -63,6 +63,25 @@ class ReferralLink(_BaseModel):
     name = CharField(unique=True)
     user_count = IntegerField(default=0)
     passed_op_count = IntegerField(default=0)
+
+
+class AdShowCounter(_BaseModel):
+    """ Счётчик показов реклам для пользователя """
+    user_telegram_id = BigIntegerField()
+    count = SmallIntegerField(default=0)
+
+
+class Advertisement(_BaseModel):
+    """ Реклама для показа пользователю """
+    class Meta:
+        db_table = 'advertisements'
+
+    id = AutoField(primary_key=True)
+    text = TextField()
+    markup_json = TextField(null=True)
+    showed_count = IntegerField(default=0)
+    show_preview = BooleanField(default=False)
+    is_active = BooleanField(default=True)
 
 
 class Admin(_BaseModel):

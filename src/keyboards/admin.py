@@ -12,10 +12,12 @@ class AdminKeyboards:
     def get_admin_menu() -> ReplyKeyboardMarkup:
         builder = ReplyKeyboardBuilder()
 
-        builder.button(text='📊 Статистика')
-        builder.button(text='✉ Рассылка')
+        builder.button(text='📊 Статистика 📊')
+        builder.button(text='✉ Рассылка ✉')
         builder.button(text='📲 Обязательные подписки 📲')
+        builder.button(text='📄 Показы рекламы 📄')
         builder.button(text='🔗 Реферальные ссылки 🔗')
+        builder.button(text='👤 Управление админами 👤')
 
         builder.adjust(1)
         return builder.as_markup(resize_keyboard=True)

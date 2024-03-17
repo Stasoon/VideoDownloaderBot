@@ -11,6 +11,7 @@ from aiogram import Bot
 from aiogram.types import Message, CallbackQuery, InputFile, BufferedInputFile
 
 from config import VIDEOS_FOLDER
+from src.database import advertisements
 from src.utils import logger
 from src.utils.pyrogram_clients import get_pyrogram_client, release_pyrogram_client
 from src.utils.video_data import VideoData
@@ -31,6 +32,27 @@ async def __load_thumb(url: str) -> BytesIO | None:
 def get_safe_filename(filename) -> str:
     safe_name = re.sub(r"[^A-zА-я0-9+\s]", "", filename)
     return safe_name
+
+
+async def send_advertisement(bot: Bot, user_id: int):
+    """ Отправляет рекламу """
+    count = advertisements.increase_counter_and_get_value(user_id=user_id)
+    show_ad_every = 4
+    if count < show_ad_every:
+        return
+
+    ad = advertisements.get_random_ad()
+    if not ad:
+        return
+
+    advertisements.reset_counter(user_id=user_id)
+    text = ad.text
+    markup = ad.markup_json
+
+    await bot.send_message(
+        chat_id=user_id, text=text, reply_markup=markup,
+        disable_web_page_preview=not ad.show_preview, parse_mode='HTML'
+    )
 
 
 async def get_media_file_url(bot: Bot, message: Message) -> str | None:
@@ -74,6 +96,8 @@ async def send_video(
         protect_content=False, supports_streaming=True,
         duration=duration, width=w, height=h, thumbnail=thumb
     )
+
+    await send_advertisement(bot=bot, user_id=chat_id)
 
     if video_msg.video:
         return video_msg.video.file_id

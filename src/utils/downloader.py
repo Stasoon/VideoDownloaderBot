@@ -54,7 +54,8 @@ class Downloader:
         resolution, thumbnail_url = self.__get_resolution_and_thumb(info)
 
         return VideoData(
-            id=info.get('id'), title=f"{info.get('title')}.mp4", duration=info.get('duration'),
+            id=info.get('id'), title=f"{info.get('title')}.mp4",
+            duration=int(info.get('duration')),
             resolution=resolution, thumbnail_url=thumbnail_url
         )
 

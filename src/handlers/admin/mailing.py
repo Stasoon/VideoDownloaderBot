@@ -117,10 +117,10 @@ async def handle_url_button_data(message: Message, state: FSMContext):
     await message.answer(Messages.prepare_post(), parse_mode='HTML')
 
     try:
-        await message.bot.copy_message(chat_id=message.from_user.id,
-                                       message_id=(await state.get_data()).get('message_id'),
-                                       from_chat_id=message.from_user.id,
-                                       reply_markup=markup)
+        await message.bot.copy_message(
+            chat_id=message.from_user.id, message_id=(await state.get_data()).get('message_id'),
+            from_chat_id=message.from_user.id, reply_markup=markup
+        )
     except Exception as e:
         print(e)
         await message.answer(
@@ -175,7 +175,7 @@ async def handle_cancel_mailing_callback(callback: CallbackQuery, state: FSMCont
 
 def register_mailing_handlers(router: Router):
     # обработка нажатия на кнопку Рассылки из меню админа
-    router.message.register(handle_admin_mailing_button, F.text == '✉ Рассылка')
+    router.message.register(handle_admin_mailing_button, F.text == '✉ Рассылка ✉')
 
     # обработка контента поста
     router.message.register(

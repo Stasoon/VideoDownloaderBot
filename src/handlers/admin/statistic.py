@@ -155,7 +155,7 @@ async def handle_export_callback(callback: CallbackQuery):
 
 def register_admin_statistic_handlers(router: Router):
     # Переход из меню
-    router.message.register(handle_admin_statistic_button, F.text == '📊 Статистика')
+    router.message.register(handle_admin_statistic_button, F.text == '📊 Статистика 📊')
 
     # Кнопка экспорт
     router.callback_query.register(handle_export_callback, StatisticCallback.filter(F.action == 'export'))
