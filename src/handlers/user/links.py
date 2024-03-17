@@ -1,4 +1,5 @@
 import os.path
+import traceback
 from urllib.parse import urlparse
 
 import aiohttp
@@ -14,6 +15,7 @@ from src.utils.downloaders import YoutubeDownloader, PinterestDownloader, Instag
 from src.utils.message_utils import send_and_delete_timer, send_video, process_video
 from src.utils.downloader import Downloader
 from src.utils import logger
+from src.utils.video_data import VideoData
 
 
 def get_video_path(url):
@@ -36,19 +38,37 @@ def get_downloader(link_source: VideoSource):
             return Downloader
 
 
+def extract_url(message: Message) -> str | None:
+    for item in message.entities:
+        if item.type == 'url':
+            return item.extract_from(message.text)
+
+
 @send_and_delete_timer()
-async def _handle_link_message(message: Message, source: VideoSource, **kwargs):
-    video_key, filename = await Downloader(message.text).get_video_info()
-    # Если нет информации о видео
-    if not video_key and not filename:
-        await message.reply(text=UserMessages.get_video_not_found())
+async def handle_link_message(message: Message, source: VideoSource, **kwargs):
+    url = extract_url(message)
+    if not url:
+        await message.reply(text=UserMessages.get_url_invalid())
         return
 
-    # Если видео уже скачивалось
-    video_from_cache = get_cached_video(key=video_key, source=source)
-    if video_from_cache:
-        await send_video(bot=message.bot, chat_id=message.from_user.id, file=video_from_cache.telegram_file_id)
-        return
+    try:
+        video_data = await Downloader(url).get_video_info()
+    except Exception as e:
+        video_data = None
+
+    # Если нет информации о видео
+    if video_data:
+        # await message.reply(text=UserMessages.get_video_not_found())
+        # Если видео уже скачивалось
+        video_from_cache = get_cached_video(key=video_data.id, source=source)
+        if video_from_cache:
+            await send_video(
+                bot=message.bot, chat_id=message.from_user.id,
+                file=video_from_cache.telegram_file_id, video_data=video_data,
+            )
+            return
+    else:
+        video_data = VideoData()
 
     # Получаем ссылку на скачивание видео
     downloader = get_downloader(source)(message.text)
@@ -63,6 +83,8 @@ async def _handle_link_message(message: Message, source: VideoSource, **kwargs):
     if not video_url:
         await message.reply(text=UserMessages.get_download_error())
         return
+    video_data.file_url = video_url
+    video_data.title = filename
 
     async with aiohttp.ClientSession() as session:
         async with session.get(video_url) as response:
@@ -70,50 +92,71 @@ async def _handle_link_message(message: Message, source: VideoSource, **kwargs):
 
     max_input_file_size_mb = 48
     content_size_mb = content_size_bit // 1024**2
+
     try:
         if content_size_mb > MAX_VIDEO_FILE_SIZE_MB:
             raise Exception(f'file size > {MAX_VIDEO_FILE_SIZE_MB}')
         elif content_size_mb > max_input_file_size_mb:
+            print('полностью')
             bot_username = (await message.bot.get_me()).username
-            file = await process_video(bot_username=bot_username, video_url=video_url, filename=filename)
+            file = await process_video(bot_username=bot_username, video_data=video_data)
         else:
             file = URLInputFile(video_url, filename=filename)
 
-        file_id = await send_video(bot=message.bot, chat_id=message.from_user.id, file=file)
+        file_id = await send_video(
+            bot=message.bot, chat_id=message.from_user.id, file=file,
+            video_data=video_data
+        )
     except Exception as e:
-        logger.error(e)
+        logger.error(traceback.format_exc())
         await message.reply(text=UserMessages.get_download_error())
         return
 
-    save_video_to_cache(file_id=file_id, key=video_key, source=source)
+    if video_data and video_data.id:
+        save_video_to_cache(file_id=file_id, key=video_data.id, source=source)
 
 
 @send_and_delete_timer()
 async def handle_vk_link_message(message: Message, source: VideoSource, **kwargs):
-    downloader = Downloader(video_url=message.text)
-    key, title, file_path = await downloader.get_video_file_url()
-
-    video_from_cache = get_cached_video(key=key, source=source)
-
-    if video_from_cache:
-        await send_video(bot=message.bot, chat_id=message.from_user.id, file=video_from_cache.telegram_file_id)
+    url = extract_url(message)
+    if not url:
+        await message.reply(text=UserMessages.get_url_invalid())
         return
 
-    if os.path.exists(file_path):
-        size = os.path.getsize(file_path) // 1024**2
+    downloader = Downloader(video_url=url)
+    video_data = await downloader.get_video_info()
+    video_from_cache = get_cached_video(key=video_data.id, source=source)
+
+    if video_from_cache:
+        await send_video(
+            bot=message.bot, chat_id=message.from_user.id,
+            file=video_from_cache.telegram_file_id, video_data=video_data
+        )
+        return
+
+    video_data = await downloader.save_video()
+
+    if not video_data:
+        await message.reply(UserMessages.get_download_error())
+        return
+
+    if os.path.exists(video_data.file_path):
+        size = os.path.getsize(video_data.file_path) // 1024**2
     else:
         await message.answer(UserMessages.get_download_error())
         return
 
     if size > 48:
         bot_username = (await message.bot.get_me()).username
-        file_id = await process_video(bot_username=bot_username, video_fs_path=file_path, filename=title)
-        await send_video(bot=message.bot, chat_id=message.from_user.id, file=file_id)
+        file_id = await process_video(
+            bot_username=bot_username, video_data=video_data
+        )
+        await send_video(bot=message.bot, chat_id=message.from_user.id, file=file_id, video_data=video_data)
     else:
-        file = FSInputFile(file_path)
-        file_id = await send_video(bot=message.bot, chat_id=message.from_user.id, file=file)
+        file = FSInputFile(video_data.file_path)
+        file_id = await send_video(bot=message.bot, chat_id=message.from_user.id, file=file, video_data=video_data)
 
-    save_video_to_cache(file_id=file_id, key=key, source=source)
+    save_video_to_cache(file_id=file_id, key=video_data.id, source=source)
 
 
 def register_links_handlers(router: Router):
@@ -121,19 +164,19 @@ def register_links_handlers(router: Router):
 
     # Тик-ток
     router.message.register(
-        _handle_link_message, F.text.startswith('https://'), F.text.contains('tiktok'),
+        handle_link_message, F.text.startswith('https://'), F.text.contains('tiktok'),
         VideoSourceFilter(VideoSource.TIKTOK)
     )
 
     # Инстаграм
     router.message.register(
-        _handle_link_message, F.text.startswith('https://'), F.text.contains('instagram'),
+        handle_link_message, F.text.startswith('https://'), F.text.contains('instagram'),
         VideoSourceFilter(VideoSource.INSTAGRAM)
     )
 
     # Ютуб
     router.message.register(
-        _handle_link_message,
+        handle_link_message,
         F.text.startswith('https://'),
         F.text.contains('youtu.be') | F.text.contains('youtube'),
         VideoSourceFilter(VideoSource.YOUTUBE)
@@ -141,7 +184,7 @@ def register_links_handlers(router: Router):
 
     # Пинтерест
     router.message.register(
-        _handle_link_message,
+        handle_link_message,
         F.text.startswith('https://'),
         F.text.contains('pinterest') | F.text.contains('pin.it'),
         VideoSourceFilter(VideoSource.PINTEREST)

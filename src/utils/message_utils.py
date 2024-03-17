@@ -1,18 +1,36 @@
-import hashlib
+import re
 import os.path
 from datetime import datetime
+from io import BytesIO
 from uuid import uuid4
 
 import aiofiles
 
 import aiohttp
 from aiogram import Bot
-from aiogram.exceptions import AiogramError
-from aiogram.types import Message, CallbackQuery, InputFile
-from pyrogram import Client
+from aiogram.types import Message, CallbackQuery, InputFile, BufferedInputFile
 
 from config import VIDEOS_FOLDER
 from src.utils import logger
+from src.utils.pyrogram_clients import get_pyrogram_client, release_pyrogram_client
+from src.utils.video_data import VideoData
+
+
+async def __load_thumb(url: str) -> BytesIO | None:
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                data = BytesIO(await response.content.read())
+                data.seek(0)
+    except Exception as e:
+        return None
+
+    return data
+
+
+def get_safe_filename(filename) -> str:
+    safe_name = re.sub(r"[^A-zА-я0-9+\s]", "", filename)
+    return safe_name
 
 
 async def get_media_file_url(bot: Bot, message: Message) -> str | None:
@@ -35,10 +53,26 @@ async def get_media_file_url(bot: Bot, message: Message) -> str | None:
     return None
 
 
-async def send_video(bot: Bot, chat_id: int, file: str | InputFile) -> str:
+async def send_video(
+        bot: Bot, chat_id: int, file: str | InputFile, video_data: VideoData = None
+) -> str:
+
+    if video_data:
+        w, h = video_data.resolution
+        duration = video_data.duration
+
+        thumb = None
+        if video_data.thumbnail_url:
+            thumb_data = await __load_thumb(url=video_data.thumbnail_url)
+            if thumb_data:
+                thumb = BufferedInputFile(thumb_data.read(), filename='thumb.jpg')
+    else:
+        w, h, duration, thumb = [None] * 4
+
     video_msg = await bot.send_video(
         chat_id=chat_id, video=file,
-        protect_content=False, supports_streaming=True
+        protect_content=False, supports_streaming=True,
+        duration=duration, width=w, height=h, thumbnail=thumb
     )
 
     if video_msg.video:
@@ -47,85 +81,83 @@ async def send_video(bot: Bot, chat_id: int, file: str | InputFile) -> str:
         return video_msg.animation.file_id
 
 
-global_client = None
+async def __send_big_video(bot_username: str, video_data: VideoData):
+    app = await get_pyrogram_client()
 
-
-async def get_pyrogram_client(session_name):
-    global global_client
-    if global_client is None:
-        global_client = Client(session_name, workdir='sessions/')
-        await global_client.start()
-    return global_client
-
-
-async def __send_and_delete_big_video(bot_username: str, video_path: str, filename: str = None):
-    app = await get_pyrogram_client('stas')
+    thumb = None
+    if video_data.thumbnail_url:
+        thumb = await __load_thumb(video_data.thumbnail_url)
 
     try:
         video_msg = await app.send_video(
-            chat_id=bot_username, video=video_path,
-            supports_streaming=True, file_name=filename,
-            protect_content=False, width=1920, height=1080
+            chat_id=bot_username, video=video_data.file_path,
+            supports_streaming=True, file_name=video_data.title,
+            duration=video_data.duration, protect_content=False,
+            width=video_data.resolution[0], height=video_data.resolution[1],
+            thumb=thumb
         )
         video_file_id = video_msg.video.file_id
     except Exception as e:
         logger.error(e)
         video_file_id = None
 
-    yield video_file_id, video_path
+    release_pyrogram_client(app)
+    yield video_file_id, video_data.file_path
 
 
-async def __load_video_and_get_file_id(bot_username: str, video_url: str, filename: str = None):
+async def __load_video_and_get_file_id(bot_username: str, video_data: VideoData):
     """Скачивает видео, а затем отправляет в чат с ботом. Возвращает file_id видео."""
-    if filename:
-        filename = filename if filename.endswith('.mp4') else f"{filename}.mp4"
+    if video_data.title:
+        filename = video_data.title if video_data.title.endswith('.mp4') else f"{video_data.title}.mp4"
     else:
         filename = f"{bot_username}_{str(datetime.today())}.mp4"
 
-    file_path = os.path.join(VIDEOS_FOLDER, f"{str(uuid4())[:10]}_{filename}")
+    file = f"{str(uuid4())[:10]}_{filename}"
+    file_path = os.path.join(VIDEOS_FOLDER, get_safe_filename(file))
 
-    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit_per_host=10)) as session:
-        async with session.get(video_url) as response:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(video_data.file_url) as response:
             async with aiofiles.open(file_path, 'wb') as f:
                 async for chunk in response.content.iter_any():
                     await f.write(chunk)
 
-    app = await get_pyrogram_client('stas')
+    app = await get_pyrogram_client()
     video_file_id = None
+
+    thumb = None
+    if video_data.thumbnail_url:
+        thumb = await __load_thumb(video_data.thumbnail_url)
 
     try:
         video_msg = await app.send_video(
             chat_id=bot_username, video=file_path,
             supports_streaming=True, file_name=filename,
-            protect_content=False, width=1920, height=1080
+            protect_content=False, duration=video_data.duration,
+            width=video_data.resolution[0], height=video_data.resolution[1],
+            thumb=thumb
         )
         video_file_id = video_msg.video.file_id
     except Exception as e:
         logger.error(e)
 
+    release_pyrogram_client(app)
     yield video_file_id, file_path
 
 
-async def process_video(
-        bot_username: str, video_url: str = None, video_fs_path: str = None, filename: str = None
-):
-    if video_url is None and video_fs_path is None:
+async def process_video(bot_username: str, video_data: VideoData):
+    if video_data.file_url is None and video_data.file_path is None:
         return
 
-    if video_url:
+    if video_data.file_url:
         meth = __load_video_and_get_file_id
-        params = {'bot_username': bot_username, 'video_url': video_url, 'filename': filename}
-    elif video_fs_path:
-        meth = __send_and_delete_big_video
-        params = {'bot_username': bot_username, 'video_path': video_fs_path, 'filename': filename}
+        params = {'bot_username': bot_username, 'video_data': video_data}
+    elif video_data.file_path:
+        meth = __send_big_video
+        params = {'bot_username': bot_username, 'video_data': video_data}
 
-    async for file_id, file_path in meth(**params): #__load_video_and_get_file_id(bot_username, video_url, filename):
-        # Используем video_id
-        print("Video File ID:", file_id, file_path)
-
+    async for file_id, file_path in meth(**params):
         # Удаляем файл после использования
         if os.path.exists(file_path):
-            print(f'удаляю {file_path}')
             os.remove(file_path)
 
         return file_id
@@ -143,10 +175,7 @@ def send_and_delete_timer():
             timer_msg = await message.answer('⏳')
             await func(update, *args, **kwargs)
 
-            try:
-                await timer_msg.delete()
-            except AiogramError:
-                pass
+            await timer_msg.delete()
         return wrapper
     return decorator
 

@@ -16,7 +16,7 @@ class UserMessages:
         return '<i>⚠ Не удалось скачать видео</i>'
 
     @staticmethod
-    def get_video_not_found() -> str:
+    def get_url_invalid() -> str:
         return '<i>⚠ Видео не найдено! \n\nПроверьте корректность ссылки.</i>'
 
     @staticmethod

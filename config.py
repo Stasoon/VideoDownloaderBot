@@ -9,9 +9,7 @@ BOT_TOKEN: Final[str] = os.getenv('BOT_TOKEN', 'define me')
 OWNER_IDS: Final[tuple] = tuple(int(i) for i in str(os.getenv('BOT_OWNER_IDS')).split(','))
 
 cwd = os.getcwd()
-VIDEOS_FOLDER: Final[str] = os.path.join(cwd, 'videos/')
-
-CLIENT_SESSION_NAME: Final[str] = os.getenv('CLIENT_SESSION_NAME')
-SESSIONS_FOLDER: Final[str] = os.path.join(cwd, 'sessions/')
+VIDEOS_FOLDER: Final[str] = os.path.join(cwd, 'videos')
+SESSIONS_FOLDER: Final[str] = os.path.join(cwd, 'sessions')
 
 MAX_VIDEO_FILE_SIZE_MB = 200
